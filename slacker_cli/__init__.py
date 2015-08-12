@@ -12,25 +12,35 @@ import os
 import warnings
 warnings.filterwarnings('ignore', message=".*InsecurePlatformWarning.*")
 
+def get_dict_list(dl, key, value):
+    for d in dl:
+        if d[key] == value:
+            return d
+    else:
+        return None
 
-def post_message(token, channel, message, name, icon):
+def post_message(token, channel, message, name, icon, as_user):
     slack = Slacker(token)
-    slack.chat.post_message(channel, message, username=name, icon_emoji=icon)
-
+    slack.chat.post_message(channel, message, username=name, icon_emoji=icon, as_user=as_user)
 
 def get_channel_id(token, channel_name):
     slack = Slacker(token)
     channels = slack.channels.list().body['channels']
-    return get_item_id_by_name(channels, channel_name)
+    return get_dict_list(channels, 'name', channel_name)['id']
 
+def get_im_channel_id(token, username):
+    slack = Slacker(token)
+    users = slack.users.list().body['members']
+    uid = get_dict_list(users, 'name', username)['id']
+    ims = slack.im.list().body['ims']
+    chnid = get_dict_list(ims, 'user', uid)['id']
+    return chnid
 
 def upload_file(token, channel, file_name):
     """ upload file to a channel """
 
     slack = Slacker(token)
-    channel_id = get_channel_id(token, channel)
-
-    slack.files.upload(file_name, channels=channel_id)
+    slack.files.upload(file_name, channels=channel)
 
 
 def args_priority(args, environ):
@@ -62,6 +72,8 @@ def main():
     parser.add_argument("-t", "--token", help="Slack token")
     parser.add_argument("-f", "--file", help="File to upload")
     parser.add_argument("-n", "--name", help="Sender name")
+    parser.add_argument("-s", "--asuser", help="Send as user (not as bot)", dest='as_user', action='store_true')
+    parser.add_argument("-d", "--direct", help="Direct message", dest='direct', action='store_true')
     parser.add_argument("-i", "--icon-emoji", help="Sender emoji icon")
 
     args = parser.parse_args()
@@ -70,17 +82,34 @@ def main():
     user = args.user
     name = args.name
     icon = args.icon_emoji
-    message = sys.stdin.read()
     file_name = args.file
+    as_user = args.as_user
+    direct = args.direct
 
-    if token and channel and message:
-        post_message(token, '#' + channel, message, name, icon)
+    assert token
 
-    if token and user and message:
-        post_message(token, '@' + user, message, name, icon)
+    if file_name:
+        message = None
+    else:
+        message = sys.stdin.read()
 
-    if token and channel and file_name:
-        upload_file(token, channel, file_name)
+    if direct:
+        chnid = get_im_channel_id(token, user)
+    else:
+        if channel:
+            chn = '#' + channel
+        elif user:
+            chn = '@' + user
+        else:
+            assert False
+        #chnid = get_channel_id(token, chn)
+        chnid = chn
+
+    if message:
+        post_message(token, chnid, message, name, icon, as_user)
+
+    if file_name:
+        upload_file(token, chnid, file_name)
 
 
 if __name__ == '__main__':
